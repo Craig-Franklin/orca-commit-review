@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createPlugin, launchContext } from '../main.mjs'
 
-function harness({ platform = 'darwin', root = '/projects/repo', child = '/worktrees/feature', active = true } = {}) {
+function harness({ platform = process.platform, root = '/projects/repo', child = '/worktrees/feature', active = true } = {}) {
   const repos = [{ id: 'repo', path: root, displayName: 'Project', kind: 'git' }]
   const snapshot = { worktrees: [{ repoId: 'repo', repo: 'Project', worktreeId: `repo::${child}`, path: child,
     displayName: 'Feature', workspaceKind: 'git', terminalPlatform: platform, hostId: 'local', isActive: active }], truncated: false }
@@ -23,7 +23,7 @@ function harness({ platform = 'darwin', root = '/projects/repo', child = '/workt
 }
 
 test('Open attaches to the focused child worktree and passes that exact checkout to each review tab', async () => {
-  for (const options of [{}, { platform: 'win32', root: String.raw`C:\Projects\repo`, child: String.raw`D:\Worktrees\feature 🦎` }]) {
+  for (const options of [{ platform: 'darwin' }, { platform: 'win32', root: String.raw`C:\Projects\repo`, child: String.raw`D:\Worktrees\feature 🦎` }]) {
     const app = harness(options)
     try {
       await app.open()
