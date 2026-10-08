@@ -1,0 +1,27 @@
+{
+  "manifestVersion": 1,
+  "id": "commit-review",
+  "publisher": "craig-franklin",
+  "name": "Commit Review",
+  "version": "0.2.0",
+  "description": "Review agent changes one commit at a time, track reviewed files, and send file or line comments to Orca terminal agents.",
+  "engines": {
+    "orca": ">=1.4.220"
+  },
+  "pluginApi": 1,
+  "main": "main.mjs",
+  "contributes": {
+    "commands": [
+      {
+        "id": "commit-review.open",
+        "title": "Commit Review: Open"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "storage"
+    }
+  ],
+  "repository": "https://github.com/Craig-Franklin/orca-commit-review"
+}
