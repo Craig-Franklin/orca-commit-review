@@ -7,7 +7,7 @@ import { git, history, commitDetails, fileDiff } from '../git.mjs'
 import { startReviewServer } from '../server.mjs'
 
 test('historical diffs, literal filenames, review persistence, and HTTP isolation', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'orca-review-test-'))
+  const repo = await mkdtemp(join(tmpdir(), 'orca-review-雪 space-'))
   const data = new Map()
   let server
   try {
@@ -16,7 +16,7 @@ test('historical diffs, literal filenames, review persistence, and HTTP isolatio
     await git(repo, ['config', 'core.autocrlf', 'false'])
     await git(repo, ['config', 'user.name', 'Review Test'])
     await git(repo, ['config', 'user.email', 'review@example.invalid'])
-    const filename = process.platform === 'win32' ? '-file [one].txt' : ':(glob)*.txt'
+    const filename = process.platform === 'win32' ? '-file [one] 🦎.txt' : ':(glob)*.txt'
     for (const value of ['parent-A', 'selected-B', 'latest-C']) {
       await writeFile(join(repo, filename), value + '\n')
       await git(repo, ['add', '--', `:(literal)${filename}`])

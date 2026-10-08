@@ -12,7 +12,7 @@ import { diffLines } from '../web/diff-lines.mjs'
 
 let repo, commit, parent
 before(async () => {
-  repo = await realpath(await mkdtemp(join(tmpdir(), 'orca-comment-test-')))
+  repo = await realpath(await mkdtemp(join(tmpdir(), 'orca-comment-雪 space-')))
   await git(repo, ['init', '-b', 'main'])
   await git(repo, ['config', 'commit.gpgsign', 'false'])
   await git(repo, ['config', 'core.autocrlf', 'false'])
