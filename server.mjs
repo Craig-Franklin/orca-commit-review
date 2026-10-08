@@ -9,16 +9,17 @@ const assets = new Map([
   ['/diff-lines.mjs', ['diff-lines.mjs', 'text/javascript']],
   ['/style.css', ['style.css', 'text/css']]
 ])
-export async function startReviewServer({ get, set, listRepositories = async () => [], cli }) {
+export async function startReviewServer({ get, set, listRepositories = async () => [], cli, heartbeatMs = 60000 }) {
   const comments = createComments({ get, set, cli })
   const token = randomBytes(32).toString('hex')
   let origin,
     writeQueue = Promise.resolve()
   const validToken = (value) =>
     typeof value === 'string' &&
-    value.length === token.length &&
+    /^[a-f0-9]{64}$/.test(value) &&
     timingSafeEqual(Buffer.from(value), Buffer.from(token))
   const keyFor = (repo) => `review-${createHash('sha256').update(repo).digest('hex')}`
+  const streams = new Set()
   const server = http.createServer(async (req, res) => {
     const send = (status, data, type = 'application/json') => {
       res.writeHead(status, {
@@ -45,6 +46,28 @@ export async function startReviewServer({ get, set, listRepositories = async () 
         return send(403, { error: 'Reopen Commit Review from Orca’s command palette.' })
       if (req.method === 'GET' && url.pathname === '/api/repos')
         return send(200, { repos: await listRepositories(), last: await get('last-repository') })
+      if (req.method === 'GET' && url.pathname === '/api/heartbeat') {
+        // Keep the worker active while a page is connected, including background tabs.
+        // No timer remains after the page disconnects, so Orca can reap unused workers.
+        await get('last-repository')
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' })
+        res.write(': connected\n\n')
+        streams.add(res)
+        let busy = false
+        const timer = setInterval(async () => {
+          if (busy) return
+          busy = true
+          try {
+            await get('last-repository')
+            if (!res.destroyed) res.write(': active\n\n')
+          } catch {
+            res.end()
+          } finally { busy = false }
+        }, heartbeatMs)
+        timer.unref()
+        res.once('close', () => { clearInterval(timer); streams.delete(res) })
+        return
+      }
       if (!['GET', 'POST'].includes(req.method)) return send(405, { error: 'Unsupported method.' })
       const repo = await repository(url.searchParams.get('repo'))
       if (url.pathname === '/api/history' && req.method === 'GET') {
@@ -61,6 +84,7 @@ export async function startReviewServer({ get, set, listRepositories = async () 
         return send(200, await comments.read(repo, id))
       if (['/api/comments', '/api/send'].includes(url.pathname) && req.method === 'POST') {
         let body = ''
+        req.setEncoding('utf8')
         for await (const chunk of req) {
           body += chunk
           if (Buffer.byteLength(body) > 65536) throw Error('Request too large.')
@@ -78,21 +102,29 @@ export async function startReviewServer({ get, set, listRepositories = async () 
         return send(200, { diff: await fileDiff(repo, id, url.searchParams.get('path')) })
       if (url.pathname === '/api/review' && req.method === 'POST') {
         let body = ''
+        req.setEncoding('utf8')
         for await (const chunk of req) {
           body += chunk
           if (Buffer.byteLength(body) > 16384) throw Error('Request too large.')
         }
-        const { path, reviewed } = JSON.parse(body)
-        if (typeof reviewed !== 'boolean') throw Error('Invalid review state.')
+        const { path, reviewed, complete } = JSON.parse(body)
+        const completion = complete !== undefined
+        if (completion ? typeof complete !== 'boolean' : typeof reviewed !== 'boolean')
+          throw Error('Invalid review state.')
         const { files } = await commitDetails(repo, id)
-        if (!files.some((f) => f.path === path)) throw Error('File is not part of this commit.')
+        if (!completion && !files.some((f) => f.path === path)) throw Error('File is not part of this commit.')
         const write = writeQueue
           .catch(() => {})
           .then(async () => {
             const state = (await get(keyFor(repo))) ?? {}
             const paths = new Set(state[id]?.paths ?? [])
-            reviewed ? paths.add(path) : paths.delete(path)
-            state[id] = { total: files.length, paths: [...paths] }
+            if (completion) {
+              if (complete && !files.every((file) => paths.has(file.path)))
+                throw Error('Mark every changed file reviewed before completing this commit.')
+            } else reviewed ? paths.add(path) : paths.delete(path)
+            const wasComplete = state[id]?.complete === true
+            state[id] = { total: files.length, paths: [...paths],
+              complete: completion ? complete : wasComplete && reviewed }
             await set(keyFor(repo), state)
             return state[id]
           })
@@ -116,6 +148,7 @@ export async function startReviewServer({ get, set, listRepositories = async () 
     token,
     close: () =>
       new Promise((resolve) => {
+        for (const stream of streams) stream.end()
         server.close(resolve)
         server.closeAllConnections()
       })

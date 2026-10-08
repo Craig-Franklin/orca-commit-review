@@ -3,7 +3,7 @@ import { promisify } from 'node:util'
 import { realpath } from 'node:fs/promises'
 const execute = promisify(execFile)
 export async function git(repo, args) {
-  const { stdout } = await execute('git', ['--no-pager', '-c', 'core.quotepath=false', ...args], {
+  const { stdout } = await execute('git', ['--no-pager', '-c', 'core.quotepath=false', '-c', 'color.ui=false', '-c', 'log.showSignature=false', ...args], {
     cwd: repo,
     windowsHide: true,
     timeout: 20000,
@@ -18,10 +18,17 @@ export async function repository(input) {
   return realpath(root)
 }
 export async function history(repo) {
+  try {
+    await git(repo, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+  } catch (error) {
+    if (error.code === 1) return [] // Unborn branch.
+    throw error
+  }
   const raw = await git(repo, [
     'log',
     '-100',
     '--topo-order',
+    '--no-notes',
     '--format=%H%x00%P%x00%h%x00%s%x00%an%x00%aI%x00%D%x00',
     'HEAD',
     '--'
@@ -69,6 +76,7 @@ export async function fileDiff(repo, id, path) {
     '--no-textconv',
     '--no-renames',
     '--unified=5',
+    '--submodule=short',
     '--',
     `:(literal)${path}`
   ])

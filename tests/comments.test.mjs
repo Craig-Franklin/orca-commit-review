@@ -4,6 +4,7 @@ import { mkdtemp, realpath, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import http from 'node:http'
 import { git } from '../git.mjs'
 import { createComments, formatReview } from '../comments.mjs'
 import { startReviewServer } from '../server.mjs'
@@ -13,6 +14,8 @@ let repo, commit, parent
 before(async () => {
   repo = await realpath(await mkdtemp(join(tmpdir(), 'orca-comment-test-')))
   await git(repo, ['init', '-b', 'main'])
+  await git(repo, ['config', 'commit.gpgsign', 'false'])
+  await git(repo, ['config', 'core.autocrlf', 'false'])
   await git(repo, ['config', 'user.name', 'Test'])
   await git(repo, ['config', 'user.email', 'test@example.invalid'])
   await writeFile(join(repo, 'file.txt'), 'before\nunchanged\n')
@@ -37,7 +40,9 @@ function setup() {
     connected: true,
     writable: true,
     agentIdentity: 'codex',
-    title: 'Fix bug'
+    title: 'Fix bug',
+    incarnationId: 'process-one',
+    executionHostId: 'local'
   }
   let response = {
     send: { accepted: true, prompt: { stages: ['input_accepted', 'turn_started'] } }
@@ -61,7 +66,8 @@ function setup() {
           ]
         }
       if (response instanceof Error) throw response
-      return response
+      return { ...response, send: { handle: target.handle, bytesWritten: 0, ...response.send,
+        ...(response.send?.prompt ? { prompt: { requestId: args[args.indexOf('--retry-request') + 1], ...response.send.prompt } } : {}) } }
     }
   }
   return {
@@ -257,4 +263,114 @@ test('HTTP comments and send endpoints enforce token and origin before invoking 
   } finally {
     await server.close()
   }
+})
+
+
+test('a zero-byte refusal restores drafts; checking it cannot replay a send', async () => {
+  const { service, respond, calls } = setup()
+  respond({ send: { accepted: false, bytesWritten: 0 } })
+  const state = await add(service), input = request(state.notes[0])
+  const result = await service.send(repo, commit, input)
+  assert.equal(result.deliveries[input.requestId].status, 'rejected')
+  assert.equal(result.notes[0].deliveryId, undefined)
+  await service.send(repo, commit, { requestId: input.requestId, check: true })
+  assert.equal(calls.filter((a) => a[1] === 'send').length, 1)
+  respond({ send: { accepted: true, prompt: { stages: ['input_accepted'] } } })
+  assert.equal((await service.send(repo, commit, request(result.notes[0]))).notes[0].deliveryId !== undefined, true)
+})
+
+test('partial writes and mismatched receipts keep comments locked and uncertain', async () => {
+  for (const send of [
+    { accepted: false, bytesWritten: 10 },
+    { accepted: true, handle: 'wrong-terminal', prompt: { stages: ['turn_started'] } },
+    { accepted: true, prompt: { requestId: randomUUID(), stages: ['turn_started'] } }
+  ]) {
+    const { service, respond } = setup()
+    respond({ send })
+    const state = await add(service), input = request(state.notes[0])
+    const result = await service.send(repo, commit, input)
+    assert.equal(result.deliveries[input.requestId].status, 'unconfirmed')
+    assert.equal(result.notes[0].deliveryId, input.requestId)
+  }
+})
+
+test('recovery never sends to a replaced, moved, or different agent', async () => {
+  for (const change of [
+    { incarnationId: 'process-two' }, { agentIdentity: 'claude' },
+    { worktreePath: tmpdir() }, { executionHostId: 'remote' }
+  ]) {
+    const { service, respond, target, calls } = setup()
+    respond(Error('lost reply'))
+    const state = await add(service), input = request(state.notes[0])
+    await service.send(repo, commit, input)
+    Object.assign(target, change)
+    await assert.rejects(() => service.send(repo, commit, { requestId: input.requestId, check: true }), /unavailable or has changed/)
+    assert.equal(calls.filter((a) => a[1] === 'send').length, 1)
+    assert.equal((await service.read(repo, commit)).notes[0].deliveryId, input.requestId)
+  }
+})
+
+test('storage failure after send retains the original request for recovery', async () => {
+  const { service, adapter, calls } = setup()
+  const state = await add(service), input = request(state.notes[0])
+  let writes = 0
+  const broken = createComments({ ...adapter, set: async (...args) => {
+    if (++writes === 2) throw Error('disk full after send')
+    await adapter.set(...args)
+  } })
+  await assert.rejects(() => broken.send(repo, commit, input), /disk full after send/)
+  const restarted = createComments(adapter)
+  assert.equal((await restarted.read(repo, commit)).deliveries[input.requestId].status, 'unconfirmed')
+  await restarted.send(repo, commit, input)
+  assert.equal(calls.filter((a) => a[1] === 'send').length, 1)
+  assert.equal((await restarted.send(repo, commit, { requestId: input.requestId, check: true })).deliveries[input.requestId].status, 'sent')
+})
+
+test('accepted input cannot be restored to drafts by a later zero-byte refusal', async () => {
+  const { service, respond } = setup()
+  respond({ send: { accepted: true, prompt: { stages: ['input_accepted'] } } })
+  const state = await add(service), input = request(state.notes[0])
+  await service.send(repo, commit, input)
+  respond({ send: { accepted: false, bytesWritten: 0 } })
+  const result = await service.send(repo, commit, { requestId: input.requestId, check: true })
+  assert.equal(result.deliveries[input.requestId].status, 'unconfirmed')
+  assert.equal(result.notes[0].deliveryId, input.requestId)
+})
+
+
+test('repeated zero-byte refusals cannot erase historical input acceptance', async () => {
+  const { service, respond } = setup()
+  respond({ send: { accepted: true, prompt: { stages: ['input_accepted'] } } })
+  const state = await add(service), input = request(state.notes[0])
+  await service.send(repo, commit, input)
+  respond({ send: { accepted: false, bytesWritten: 0 } })
+  for (let i = 0; i < 2; i++) {
+    const result = await service.send(repo, commit, { requestId: input.requestId, check: true })
+    assert.equal(result.deliveries[input.requestId].status, 'unconfirmed')
+    assert.equal(result.notes[0].deliveryId, input.requestId)
+  }
+})
+
+
+test('HTTP preserves Unicode comments split across network chunks and rejects non-hex tokens', async () => {
+  const { adapter } = setup()
+  const server = await startReviewServer(adapter)
+  try {
+    const url = new URL('/api/comments', server.origin)
+    url.searchParams.set('repo', repo); url.searchParams.set('commit', commit)
+    assert.equal((await fetch(url, { headers: { 'X-Review-Token': 'é'.repeat(64) } })).status, 403)
+    const body = 'Please check 🦎 and café'
+    const bytes = Buffer.from(JSON.stringify({ action: 'add', path: 'file.txt', line: 0, side: 'file', body }))
+    const split = bytes.indexOf(Buffer.from('🦎')) + 2
+    const result = await new Promise((resolve, reject) => {
+      const req = http.request(url, { method: 'POST', headers: { 'X-Review-Token': server.token } }, (res) => {
+        let text = ''; res.setEncoding('utf8'); res.on('data', (chunk) => { text += chunk })
+        res.on('end', () => { try { assert.equal(res.statusCode, 200); resolve(JSON.parse(text)) } catch (e) { reject(e) } })
+      })
+      req.on('error', reject)
+      req.write(bytes.subarray(0, split))
+      setTimeout(() => req.end(bytes.subarray(split)), 20)
+    })
+    assert.equal(result.notes[0].body, body)
+  } finally { await server.close() }
 })
