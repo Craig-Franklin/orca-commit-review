@@ -39,3 +39,13 @@ test('normal nonzero refusal keeps its structured receipt; timeouts and malforme
     await assert.rejects(() => cli([]), (e) => !/private/.test(e.message))
   }
 })
+
+test('real child-process transport preserves long Unicode, quotes, backslashes and multiline arguments', async () => {
+  const fixture = new URL('./fixtures/cli-echo.mjs', import.meta.url)
+  const { fileURLToPath } = await import('node:url')
+  const cli = createCli({ invoke: () => [process.execPath, [fileURLToPath(fixture)]] })
+  const text = 'Review 🦎 café\n"quoted" \\path\\ $(literal) '.repeat(180)
+  assert.ok(text.length < 10000)
+  const args = ['terminal', 'send', '--text', text, '--retry-request', 'designated-fixture-only']
+  assert.deepEqual((await cli(args)).args, [...args, '--json'])
+})
