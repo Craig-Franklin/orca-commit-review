@@ -10,19 +10,30 @@
   <body>
     <header>
       <div class="brand">
-        <span class="logo">⑂</span><strong>Commit Review</strong><span class="tag">Preview</span>
+        <span class="logo">⑂</span><strong>Review</strong><span class="tag">Preview</span>
       </div>
       <select id="repositories" aria-label="Repository"></select
+      ><select id="ui-size" aria-label="UI size" title="UI size">
+        <option value="0.8">80%</option><option value="0.9" selected>90%</option>
+        <option value="1">100%</option><option value="1.1">110%</option>
+        <option value="1.25">125%</option><option value="1.5">150%</option>
+      </select
       ><button id="refresh">↻ Refresh</button
       ><button id="theme" aria-label="Toggle theme">◐</button>
     </header>
-    <form id="repository-form">
+    <div id="compare-toolbar">
+      <span id="branch-name"></span><span class="compare-label">compared with</span>
+      <select id="compare-branch" aria-label="Compare branch" disabled></select>
+      <details id="checkout-picker"><summary>Open another checkout</summary>
+      <form id="repository-form">
       <input
         id="repository-path"
         aria-label="Local repository path"
         placeholder="Or enter a local repository path"
       /><button>Open repository</button>
-    </form>
+      </form>
+      </details>
+    </div>
     <div id="error" role="alert" hidden></div>
     <main>
       <aside>
@@ -44,14 +55,16 @@
         <div id="file-toolbar">
           <strong id="file-name"></strong><button id="previous" disabled>← Previous</button
           ><button id="next" disabled>Next →</button
-          ><button id="comment-file" disabled>Comment</button
+          ><select id="diff-layout" aria-label="Diff layout"><option value="unified">Unified</option><option value="split">Split</option></select
+          ><button id="wrap-lines" aria-pressed="false">Wrap</button
+          ><button id="comment-file" disabled>Add review note</button
           ><label id="review-label" hidden><input type="checkbox" id="reviewed" /> Reviewed</label>
         </div>
         <div id="diff" tabindex="0" aria-label="Commit diff">
           <p class="empty">Choose a repository to begin.</p>
         </div>
-        <details id="comments-panel" open>
-          <summary>Review comments <span id="comment-count"></span></summary>
+        <details id="comments-panel">
+          <summary>Review notes <span id="comment-count"></span></summary>
           <div id="comments-list"></div>
           <div class="send-toolbar">
             <select id="sessions" aria-label="Agent session">
@@ -66,9 +79,10 @@
         </details>
       </section>
     </main>
-    <dialog id="comment-dialog">
+    <div id="comment-parking" hidden>
+    <section id="comment-dialog" class="comment-composer" role="region" aria-label="Add review note" hidden>
       <form id="comment-form">
-        <h2>Add review comment</h2>
+        <h2>Add review note</h2>
         <p id="comment-location"></p>
         <textarea
           id="comment-body"
@@ -83,7 +97,8 @@
           ><button id="save-comment">Save comment</button>
         </div>
       </form>
-    </dialog>
+    </section>
+    </div>
     <footer>
       <span>Local Git · Changes compared with the commit’s first parent</span
       ><span id="save-status">Review marks save on this computer</span>

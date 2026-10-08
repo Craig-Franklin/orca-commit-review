@@ -1,7 +1,8 @@
 import http from 'node:http'
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
-import { repository, history, commitDetails, fileDiff } from './git.mjs'
+import { repository, history, comparison, commitDetails, fileDiff } from './git.mjs'
+import path from 'node:path'
 import { createComments } from './comments.mjs'
 const assets = new Map([
   ['/', ['index.html', 'text/html']],
@@ -19,6 +20,21 @@ export async function startReviewServer({ get, set, listRepositories = async () 
     /^[a-f0-9]{64}$/.test(value) &&
     timingSafeEqual(Buffer.from(value), Buffer.from(token))
   const keyFor = (repo) => `review-${createHash('sha256').update(repo).digest('hex')}`
+  const compareKey = (repo) => `compare-${createHash('sha256').update(repo).digest('hex')}`
+  const compareFor = async (repo) => {
+    const key = (p) => process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p)
+    const options = await Promise.all((await listRepositories()).map(async (r) => ({
+      ...r, canonicalPath: await realpath(r.path).catch(() => r.path)
+    })))
+    const configured = options.find((r) => key(r.canonicalPath) === key(repo))?.baseRef
+    const saved = await get(compareKey(repo))
+    const result = await comparison(repo, saved || configured)
+    if (saved && result.warning && configured) {
+      const fallback = await comparison(repo, configured)
+      return { ...fallback, warning: result.warning }
+    }
+    return result
+  }
   const streams = new Set()
   const server = http.createServer(async (req, res) => {
     const send = (status, data, type = 'application/json') => {
@@ -46,6 +62,29 @@ export async function startReviewServer({ get, set, listRepositories = async () 
         return send(403, { error: 'Reopen Commit Review from Orca’s command palette.' })
       if (req.method === 'GET' && url.pathname === '/api/repos')
         return send(200, { repos: await listRepositories(), last: await get('last-repository') })
+      if (req.method === 'GET' && url.pathname === '/api/preferences')
+        return send(200, (await get('view-preferences')) ?? {})
+      if (req.method === 'POST' && url.pathname === '/api/preferences') {
+        let body = ''
+        req.setEncoding('utf8')
+        for await (const chunk of req) {
+          body += chunk
+          if (Buffer.byteLength(body) > 1024) throw Error('Request too large.')
+        }
+        const values = JSON.parse(body)
+        const allowed = { size: ['0.8', '0.9', '1', '1.1', '1.25', '1.5'], layout: ['split', 'unified'],
+          wrap: [true, false], theme: ['light', 'dark'] }
+        if (!values || Array.isArray(values) || typeof values !== 'object' ||
+            Object.entries(values).some(([key, value]) => !allowed[key]?.includes(value)))
+          throw Error('Invalid view preferences.')
+        const write = writeQueue.catch(() => {}).then(async () => {
+          const result = { ...((await get('view-preferences')) ?? {}), ...values }
+          await set('view-preferences', result)
+          return result
+        })
+        writeQueue = write
+        return send(200, await write)
+      }
       if (req.method === 'GET' && url.pathname === '/api/heartbeat') {
         // Keep the worker active while a page is connected, including background tabs.
         // No timer remains after the page disconnects, so Orca can reap unused workers.
@@ -70,10 +109,26 @@ export async function startReviewServer({ get, set, listRepositories = async () 
       }
       if (!['GET', 'POST'].includes(req.method)) return send(405, { error: 'Unsupported method.' })
       const repo = await repository(url.searchParams.get('repo'))
+      if (url.pathname === '/api/comparison' && req.method === 'GET')
+        return send(200, await compareFor(repo))
+      if (url.pathname === '/api/comparison' && req.method === 'POST') {
+        let body = ''
+        req.setEncoding('utf8')
+        for await (const chunk of req) {
+          body += chunk
+          if (Buffer.byteLength(body) > 4096) throw Error('Request too large.')
+        }
+        const { ref } = JSON.parse(body)
+        const result = await comparison(repo, ref)
+        if (!result.refs.some((r) => r.ref === ref)) throw Error('Choose an available compare branch.')
+        await set(compareKey(repo), ref)
+        return send(200, result)
+      }
       if (url.pathname === '/api/history' && req.method === 'GET') {
-        const commits = await history(repo)
+        const compareRef = url.searchParams.get('compare') || (await compareFor(repo)).compareRef
+        const commits = compareRef ? await history(repo, compareRef) : []
         await set('last-repository', repo)
-        return send(200, { repo, commits, review: (await get(keyFor(repo))) ?? {} })
+        return send(200, { repo, commits, compareRef, review: (await get(keyFor(repo))) ?? {} })
       }
       if (url.pathname === '/api/progress' && req.method === 'GET')
         return send(200, (await get(keyFor(repo))) ?? {})

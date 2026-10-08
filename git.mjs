@@ -17,12 +17,39 @@ export async function repository(input) {
   const root = (await git(input, ['rev-parse', '--show-toplevel'])).trim()
   return realpath(root)
 }
-export async function history(repo) {
+export async function comparison(repo, preferredRef) {
+  const raw = await git(repo, ['for-each-ref', '--format=%(refname)%00%(symref)', 'refs/heads', 'refs/remotes'])
+  const refs = raw.trim().split('\n').filter(Boolean).map((line) => line.split('\0'))
+    .filter(([, symbolic]) => !symbolic).map(([ref]) => ({
+      ref, name: ref.replace(/^refs\/(heads|remotes)\//, '')
+    }))
+  const match = (value) => refs.find((r) => r.ref === value) ??
+    (refs.filter((r) => r.name === value).length === 1 ? refs.find((r) => r.name === value) : undefined)
+  let currentBranch = 'Detached HEAD'
+  try { currentBranch = (await git(repo, ['symbolic-ref', '--quiet', '--short', 'HEAD'])).trim() }
+  catch (error) { if (error.code !== 1) throw error }
+  let originHead
+  try { originHead = (await git(repo, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])).trim() }
+  catch (error) { if (error.code !== 1) throw error }
+  const selected = match(preferredRef) ?? match(originHead) ??
+    ['refs/remotes/origin/main', 'refs/remotes/origin/master', 'refs/heads/main', 'refs/heads/master']
+      .map(match).find(Boolean)
+  return { refs, currentBranch, compareRef: selected?.ref ?? null,
+    warning: preferredRef && !match(preferredRef) ? `Compare branch ${preferredRef} is unavailable. Choose an available branch.` : null }
+}
+export async function history(repo, compareRef) {
   try {
     await git(repo, ['rev-parse', '--verify', '--quiet', 'HEAD'])
   } catch (error) {
     if (error.code === 1) return [] // Unborn branch.
     throw error
+  }
+  let exclusion = []
+  if (compareRef) {
+    const { refs } = await comparison(repo)
+    if (!refs.some((r) => r.ref === compareRef)) throw Error('Choose an available compare branch.')
+    const hash = (await git(repo, ['rev-parse', '--verify', '--end-of-options', `${compareRef}^{commit}`])).trim()
+    exclusion = [`^${hash}`]
   }
   const raw = await git(repo, [
     'log',
@@ -31,6 +58,7 @@ export async function history(repo) {
     '--no-notes',
     '--format=%H%x00%P%x00%h%x00%s%x00%an%x00%aI%x00%D%x00',
     'HEAD',
+    ...exclusion,
     '--'
   ])
   const parts = raw.split('\0'),

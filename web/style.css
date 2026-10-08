@@ -1,12 +1,13 @@
 :root {
+  --ui-scale: 0.9;
   color-scheme: dark;
-  --bg: #171717;
-  --side: #1d1d1d;
-  --muted: #999;
-  --text: #e6e6e6;
-  --border: #333;
-  --hover: #292929;
-  --selected: #233446;
+  --bg: #1e1e1e;
+  --side: #171717;
+  --muted: #a1a1a1;
+  --text: #fafafa;
+  --border: rgb(255 255 255 / 0.07);
+  --hover: #262626;
+  --selected: #303030;
   --blue: #3794ff;
   --green: #94d59c;
   --red: #efa0a0;
@@ -17,12 +18,12 @@
 :root.light {
   color-scheme: light;
   --bg: #fff;
-  --side: #f7f7f7;
-  --muted: #686868;
-  --text: #202020;
-  --border: #ddd;
-  --hover: #eee;
-  --selected: #e3f0ff;
+  --side: #f5f5f5;
+  --muted: #737373;
+  --text: #0a0a0a;
+  --border: #e5e5e5;
+  --hover: #f5f5f5;
+  --selected: #e5e5e5;
   --blue: #0875cb;
   --green: #236d34;
   --red: #a32935;
@@ -34,6 +35,7 @@
   box-sizing: border-box;
 }
 body {
+  zoom: var(--ui-scale);
   margin: 0;
   background: var(--bg);
   color: var(--text);
@@ -42,7 +44,7 @@ body {
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
-  height: 100vh;
+  height: calc(100dvh / var(--ui-scale));
   display: flex;
   flex-direction: column;
 }
@@ -58,7 +60,7 @@ input {
   border: 1px solid var(--border);
   background: var(--side);
   border-radius: 5px;
-  padding: 6px 9px;
+  padding: 4px 7px;
 }
 button {
   cursor: pointer;
@@ -79,8 +81,8 @@ select:focus-visible {
 header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--border);
 }
 .brand {
@@ -90,10 +92,10 @@ header {
   margin-right: auto;
 }
 .brand strong {
-  font-size: 15px;
+  font-size: 13px;
 }
 .logo {
-  font-size: 23px;
+  font-size: 17px;
   color: var(--blue);
 }
 .tag {
@@ -109,8 +111,7 @@ select {
 #repository-form {
   display: flex;
   gap: 8px;
-  padding: 7px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 6px 0 0;
 }
 #repository-path {
   flex: 1;
@@ -128,7 +129,7 @@ main {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 28%) minmax(0, 1fr);
 }
 aside {
   display: flex;
@@ -143,7 +144,7 @@ aside {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 6px 12px;
   color: var(--muted);
   font-size: 11px;
   letter-spacing: 0.4px;
@@ -168,7 +169,7 @@ button.commit {
   padding: 0 12px;
   text-align: left;
   align-items: center;
-  height: 54px;
+  height: 42px;
   background: transparent;
   gap: 8px;
 }
@@ -182,7 +183,7 @@ button.file.selected {
 }
 .graph {
   flex-shrink: 0;
-  height: 54px;
+  height: 42px;
   overflow: visible;
 }
 .commit-copy {
@@ -194,7 +195,7 @@ button.file.selected {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 21px;
+  line-height: 18px;
 }
 .metadata {
   display: flex;
@@ -202,7 +203,7 @@ button.file.selected {
   gap: 7px;
   font-size: 11px;
   color: var(--muted);
-  height: 19px;
+  height: 16px;
 }
 .hash {
   font-family: ui-monospace, monospace;
@@ -240,13 +241,17 @@ button.file.selected {
   background: transparent;
   border-radius: 0;
   gap: 8px;
-  padding: 9px;
+  padding: 6px;
 }
 .file-path {
   flex: 1;
-  word-break: break-word;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
 }
+.file-directory { color: var(--muted); font-size: 11px; margin-left: 6px; }
 .status {
   font-size: 11px;
   color: var(--muted);
@@ -264,7 +269,7 @@ button.file.selected {
   flex-direction: column;
 }
 #commit-heading {
-  padding: 14px 18px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
 }
 h1 {
@@ -284,8 +289,8 @@ h1 {
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--border);
-  padding: 8px 12px;
-  min-height: 46px;
+  padding: 5px 10px;
+  min-height: 36px;
 }
 #file-name {
   margin-right: auto;
@@ -306,7 +311,7 @@ h1 {
   min-height: 0;
   overflow: auto;
   font:
-    12px/1.7 ui-monospace,
+    12px/1.45 ui-monospace,
     SFMono-Regular,
     Consolas,
     monospace;
@@ -445,18 +450,18 @@ button.comment-location {
   flex: 1;
   overflow-wrap: anywhere;
 }
-dialog {
+.comment-composer {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
-  width: min(620px, 90vw);
+  margin: 8px 12px;
+  padding: 10px;
+  max-width: 680px;
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
-dialog::backdrop {
-  background: #0008;
-}
-dialog h2 {
-  font-size: 16px;
+.comment-composer h2 {
+  font-size: 13px;
   margin-top: 0;
 }
 #comment-location {
@@ -479,6 +484,52 @@ dialog h2 {
 #comment-error {
   color: var(--red);
 }
+#compare-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+#branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 30%;
+  white-space: nowrap;
+}
+.compare-label, #checkout-picker summary {
+  color: var(--muted);
+  font-size: 12px;
+}
+#checkout-picker { margin-left: auto; }
+#checkout-picker summary { cursor: pointer; }
+#ui-size { max-width: none; }
+#compare-branch { min-width: 140px; }
+.split-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-width: 100%;
+}
+.split-cell { display: flex; min-width: 0; overflow-x: auto; }
+.split-cell:first-child { border-right: 1px solid var(--border); }
+.wrap .diff-line { min-width: 0; }
+.wrap .diff-line code { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; flex: 1; }
+.inline-note {
+  margin: 8px 12px;
+  padding: 8px 10px;
+  max-width: 680px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--blue);
+  border-radius: 5px;
+  background: var(--side);
+  font: 12px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.inline-note strong { color: var(--muted); font-size: 11px; font-weight: 500; }
+.inline-note p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+#complete-review { margin-top: 5px; }
+button.line-number:hover::before { content: '+'; color: var(--blue); margin-right: 4px; }
+#wrap-lines[aria-pressed='true'] { background: var(--selected); }
 @media (max-width: 760px) {
   main {
     grid-template-columns: 280px minmax(0, 1fr);

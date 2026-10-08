@@ -1,8 +1,10 @@
-import { diffLines } from './diff-lines.mjs'
+import { diffLines, splitDiffLines } from './diff-lines.mjs'
 const $ = (id) => document.getElementById(id)
 const token = location.hash.slice(1)
 const state = {
   repo: '',
+  compareRef: null,
+  diff: null,
   commits: [],
   review: {},
   commit: null,
@@ -67,6 +69,7 @@ function graphSVG(g, commit) {
     'width',
     String(12 * (Math.max(g.before.length, g.after.length, g.index + 1) + 1))
   )
+  svg.setAttribute('viewBox', `0 0 ${12 * (Math.max(g.before.length, g.after.length, g.index + 1) + 1)} 54`)
   svg.setAttribute('aria-hidden', 'true')
   const x = (i) => 12 * (i + 1)
   function path(d, color) {
@@ -147,8 +150,12 @@ function renderFiles() {
     box.setAttribute('aria-label', `Reviewed: ${file.path}`)
     box.onchange = () => mark(file.path, box.checked).catch(error)
     const button = node('button', undefined, 'file' + (state.file === file.path ? ' selected' : ''))
+    button.title = file.path
+    const segments = file.path.split('/'), filename = segments.pop()
+    const label = node('span', filename, 'file-path')
+    if (segments.length) label.append(node('span', segments.join('/'), 'file-directory'))
     button.append(
-      node('span', file.path, 'file-path'),
+      label,
       node('span', file.status, 'status ' + file.status)
     )
     button.onclick = () => selectFile(file.path).catch(error)
@@ -169,10 +176,13 @@ function renderFiles() {
   $('previous').disabled = i <= 0
   $('next').disabled = i < 0 || i >= state.files.length - 1
 }
-async function loadRepo(repo) {
+async function loadRepo(repo, requestedCompare) {
   const generation = ++state.generation
   state.fileGeneration++
   state.repo = repo
+  state.compareRef = null
+  state.diff = null
+  $('compare-branch').disabled = true
   resetComments()
   $('sessions').replaceChildren(node('option', 'Choose an agent session…'))
   $('sessions').firstChild.value = ''
@@ -189,18 +199,45 @@ async function loadRepo(repo) {
   $('file-name').textContent = ''
   renderCommits()
   renderFiles()
-  const result = await api('history', { repo })
+  const compare = await api('comparison', { repo }, requestedCompare ? { ref: requestedCompare } : undefined)
+  if (generation !== state.generation) return
+  state.compareRef = compare.compareRef
+  const placeholder = node('option', 'Choose compare branch…')
+  placeholder.value = ''
+  $('compare-branch').replaceChildren(placeholder)
+  for (const ref of compare.refs) {
+    const option = node('option', ref.name)
+    option.value = ref.ref
+    $('compare-branch').append(option)
+  }
+  $('compare-branch').value = compare.compareRef ?? ''
+  $('compare-branch').disabled = false
+  $('branch-name').textContent = compare.currentBranch
+  if (compare.warning) error(Error(compare.warning))
+  const result = await api('history', { repo, ...(compare.compareRef ? { compare: compare.compareRef } : {}) })
   if (generation !== state.generation) return
   state.repo = result.repo
+  if (globalThis.history?.replaceState) {
+    const url = new URL(location.href)
+    url.searchParams.set('repo', result.repo)
+    globalThis.history.replaceState(null, '', url.href)
+  }
   refreshSessions().catch(error)
   state.commits = result.commits
   state.review = result.review
   $('repository-path').value = result.repo
   renderCommits()
   if (state.commits.length) await selectCommit(state.commits[0])
-  else $('diff').replaceChildren(node('p', 'No commits yet.', 'empty'))
+  else {
+    const name = compare.refs.find((r) => r.ref === compare.compareRef)?.name
+    $('commit-heading').querySelector('h1').textContent = name ? `No commits ahead of ${name}` : 'No commits to review'
+    $('commit-meta').textContent = ''
+    $('diff').replaceChildren(node('p', name ? `All commits on ${compare.currentBranch} are already in ${name}.` :
+      compare.refs.length ? 'Choose a compare branch to see commits for review.' : 'No commits yet.', 'empty'))
+  }
 }
 async function selectCommit(commit) {
+  state.diff = null
   const generation = ++state.generation
   state.fileGeneration++
   state.commit = commit
@@ -228,6 +265,10 @@ async function selectCommit(commit) {
   else $('diff').replaceChildren(node('p', 'This commit has no file changes.', 'empty'))
 }
 async function selectFile(path) {
+  parkComposer(true)
+  inlineSlots.clear()
+  diffAnchors.clear()
+  state.diff = null
   const generation = ++state.fileGeneration,
     commit = state.commit.id,
     repo = state.repo
@@ -237,27 +278,93 @@ async function selectFile(path) {
   $('diff').replaceChildren(node('p', 'Loading diff…', 'empty'))
   const result = await api('diff', { repo, commit, path })
   if (generation !== state.fileGeneration) return
+  state.diff = result.diff
   renderDiff(result.diff)
   $('diff').scrollTop = 0
 }
+const inlineSlots = new Map(), diffAnchors = new Map()
+let diffLayout = localStorage.getItem('commit-review-diff-layout') === 'split' ? 'split' : 'unified'
+function parkComposer(close = false) {
+  const composer = $('comment-dialog')
+  $('comment-parking').append(composer)
+  if (close && !commentBusy) { composer.hidden = true; composer.open = false }
+}
+function attachComposer() {
+  const composer = $('comment-dialog')
+  if (!composer.open || !commentContext || !sameReview(commentContext.repo, commentContext.commit) || commentContext.path !== state.file) return
+  const slot = inlineSlots.get(`${commentContext.side}:${commentContext.line}`)
+  if (slot) slot.append(composer)
+}
+function renderInlineNotes() {
+  parkComposer()
+  for (const slot of new Set(inlineSlots.values())) slot.replaceChildren()
+  for (const note of comments.notes.filter((n) => n.path === state.file)) {
+    const slot = inlineSlots.get(`${note.side}:${note.line}`)
+    if (!slot) continue
+    const card = node('div', undefined, 'inline-note')
+    card.append(node('strong', `Review note · ${comments.deliveries[note.deliveryId]?.status ?? 'draft'}`), node('p', note.body))
+    slot.append(card)
+  }
+  attachComposer()
+}
+function lineNumber(side, number) {
+  const cell = node(number === null ? 'span' : 'button', number ?? '', 'line-number')
+  if (number !== null) {
+    cell.title = `Add review note on ${side} line ${number}`
+    cell.setAttribute('aria-label', cell.title)
+    cell.onclick = () => composeComment(side, number)
+  }
+  return cell
+}
 function renderDiff(diff) {
+  parkComposer()
+  inlineSlots.clear()
+  diffAnchors.clear()
   const fragment = document.createDocumentFragment()
-  for (const line of diffLines(diff)) {
-    const row = node('div', undefined, 'diff-line ' + line.kind)
-    for (const side of ['old', 'new']) {
-      const number = line[side]
-      const cell = node(number === null ? 'span' : 'button', number ?? '', 'line-number')
-      if (number !== null) {
-        cell.title = `Comment on ${side} line ${number}`
-        cell.setAttribute('aria-label', cell.title)
-        cell.onclick = () => composeComment(side, number)
+  const fileSlot = node('div', undefined, 'inline-notes')
+  inlineSlots.set('file:0', fileSlot)
+  fragment.append(fileSlot)
+  const rows = diffLayout === 'split' ? splitDiffLines(diff) : diffLines(diff).map((line) => ({ unified: line }))
+  for (const model of rows) {
+    const line = model.unified ?? model.header
+    const row = node('div', undefined, 'diff-line ' + (line?.kind ?? 'split-row'))
+    const slot = node('div', undefined, 'inline-notes')
+    if (line) {
+      for (const side of ['old', 'new']) {
+        row.append(lineNumber(side, line[side]))
+        if (line[side] !== null) { inlineSlots.set(`${side}:${line[side]}`, slot); diffAnchors.set(`${side}:${line[side]}`, row) }
       }
-      row.append(cell)
+      row.append(node('code', line.text))
+    } else {
+      for (const side of ['old', 'new']) {
+        const source = model[side], cell = node('div', undefined, 'split-cell ' + (source?.kind ?? ''))
+        const number = source?.[side] ?? null
+        cell.append(lineNumber(side, number), node('code', source ? source.text.slice(1) : ''))
+        row.append(cell)
+        if (number !== null) { inlineSlots.set(`${side}:${number}`, slot); diffAnchors.set(`${side}:${number}`, row) }
+      }
     }
-    row.append(node('code', line.text))
-    fragment.append(row)
+    fragment.append(row, slot)
   }
   $('diff').replaceChildren(fragment)
+  renderInlineNotes()
+}
+$('diff-layout').value = diffLayout
+$('diff-layout').onchange = () => {
+  diffLayout = $('diff-layout').value === 'split' ? 'split' : 'unified'
+  localStorage.setItem('commit-review-diff-layout', diffLayout)
+  savePreferences({ layout: diffLayout })
+  if (state.diff !== null) renderDiff(state.diff)
+}
+let wrapping = localStorage.getItem('commit-review-wrap') === 'true'
+function applyWrap() {
+  $('diff').classList.toggle('wrap', wrapping)
+  $('wrap-lines').setAttribute('aria-pressed', String(wrapping))
+}
+applyWrap()
+$('wrap-lines').onclick = () => {
+  wrapping = !wrapping; applyWrap(); localStorage.setItem('commit-review-wrap', String(wrapping))
+  savePreferences({ wrap: wrapping })
 }
 async function mark(path, reviewed, complete) {
   if (state.saving) return
@@ -290,6 +397,9 @@ $('previous').onclick = () =>
 $('next').onclick = () =>
   selectFile(state.files[state.files.findIndex((f) => f.path === state.file) + 1].path).catch(error)
 $('refresh').onclick = () => loadRepo(state.repo).catch(error)
+$('compare-branch').onchange = () => {
+  if ($('compare-branch').value) loadRepo(state.repo, $('compare-branch').value).catch(error)
+}
 $('repositories').onchange = () => loadRepo($('repositories').value).catch(error)
 $('repository-form').onsubmit = (e) => {
   e.preventDefault()
@@ -301,17 +411,45 @@ $('theme').onclick = () => {
     'commit-review-theme',
     document.documentElement.classList.contains('light') ? 'light' : 'dark'
   )
+  savePreferences({ theme: document.documentElement.classList.contains('light') ? 'light' : 'dark' })
 }
 if (localStorage.getItem('commit-review-theme') === 'light')
   document.documentElement.classList.add('light')
+const sizes = ['0.8', '0.9', '1', '1.1', '1.25', '1.5']
+function applySize(value) {
+  const size = sizes.includes(value) ? value : '0.9'
+  document.documentElement.style.setProperty('--ui-scale', size)
+  $('ui-size').value = size
+  return size
+}
+applySize(localStorage.getItem('commit-review-size'))
+let preferenceGeneration = 0
+function savePreferences(values) {
+  preferenceGeneration++
+  api('preferences', {}, values).catch(error)
+}
+$('ui-size').onchange = () => {
+  const size = applySize($('ui-size').value)
+  localStorage.setItem('commit-review-size', size)
+  savePreferences({ size })
+}
 async function start() {
+  const generation = preferenceGeneration
+  const preferences = await api('preferences')
+  if (generation === preferenceGeneration) {
+    if (preferences.size) applySize(preferences.size)
+    if (preferences.layout) { diffLayout = preferences.layout; $('diff-layout').value = diffLayout }
+    if (typeof preferences.wrap === 'boolean') { wrapping = preferences.wrap; applyWrap() }
+    if (preferences.theme) document.documentElement.classList.toggle('light', preferences.theme === 'light')
+  }
   const { repos, last } = await api('repos')
   for (const repo of repos) {
     const option = node('option', repo.name)
     option.value = repo.path
     $('repositories').append(option)
   }
-  const initial = last || repos[0]?.path
+  const initial = new URLSearchParams(location.search).get('repo') ||
+    (repos.some((r) => r.path === last) ? last : repos[0]?.path)
   if (initial) {
     $('repositories').value = initial
     await loadRepo(initial)
@@ -342,7 +480,9 @@ let commentBusy = false,
   commentsGeneration = 0
 function resetComments() {
   commentsGeneration++
-  if ($('comment-dialog').open && !commentBusy) $('comment-dialog').close()
+  parkComposer(true)
+  inlineSlots.clear()
+  diffAnchors.clear()
   comments = { notes: [], deliveries: {} }
   selectedNotes = new Set()
   renderComments()
@@ -378,7 +518,12 @@ function renderComments() {
     }
     const location = note.line ? `${note.path}:${note.line} (${note.side})` : note.path
     const jump = node('button', location, 'comment-location')
-    jump.onclick = () => selectFile(note.path).catch(error)
+    jump.onclick = async () => {
+      try {
+        await selectFile(note.path)
+        diffAnchors.get(`${note.side}:${note.line}`)?.scrollIntoView?.({ block: 'center' })
+      } catch (e) { error(e) }
+    }
     heading.append(jump)
     const delivery = comments.deliveries[note.deliveryId]
     heading.append(
@@ -409,6 +554,7 @@ function renderComments() {
   }
   $('comments-list').replaceChildren(fragment)
   $('comment-count').textContent = comments.notes.length ? `(${comments.notes.length})` : ''
+  renderInlineNotes()
   updateSendButton()
 }
 function updateSendButton() {
@@ -443,13 +589,15 @@ async function refreshSessions() {
   updateSendButton()
 }
 function composeComment(side = 'file', line = 0) {
-  if (!state.file || !state.commit) return
+  if (!state.file || !state.commit || commentBusy) return
   commentContext = { repo: state.repo, commit: state.commit.id, path: state.file, side, line }
   $('comment-location').textContent =
     `${state.commit.short} · ${state.file}${line ? `:${line} (${side})` : ' · whole file'}`
   $('comment-body').value = ''
   $('comment-error').textContent = ''
-  $('comment-dialog').showModal()
+  $('comment-dialog').hidden = false
+  $('comment-dialog').open = true
+  attachComposer()
   $('comment-body').focus()
 }
 async function commentMutation(
@@ -487,7 +635,7 @@ async function commentMutation(
   }
 }
 $('comment-file').onclick = () => composeComment()
-$('cancel-comment').onclick = () => $('comment-dialog').close()
+$('cancel-comment').onclick = () => parkComposer(true)
 $('comment-form').onsubmit = async (e) => {
   e.preventDefault()
   if (commentBusy) return
@@ -505,7 +653,7 @@ $('comment-form').onsubmit = async (e) => {
       },
       commentContext
     )
-    $('comment-dialog').close()
+    parkComposer(true)
     $('comments-panel').open = true
   } catch (e) {
     $('comment-error').textContent = e.message
@@ -514,8 +662,10 @@ $('comment-form').onsubmit = async (e) => {
     $('cancel-comment').disabled = false
   }
 }
-$('comment-dialog').oncancel = (e) => {
-  if (commentBusy) e.preventDefault()
+$('comment-form').onkeydown = (e) => {
+  if (e.isComposing) return
+  if (e.key === 'Escape' && !commentBusy) { e.preventDefault(); parkComposer(true) }
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !commentBusy) { e.preventDefault(); $('comment-form').requestSubmit() }
 }
 $('refresh-sessions').onclick = async () => {
   try {

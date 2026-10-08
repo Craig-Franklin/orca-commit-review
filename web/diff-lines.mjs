@@ -27,3 +27,23 @@ export function diffLines(diff) {
     return row
   })
 }
+
+// Align contiguous replacement blocks without changing their old/new anchors.
+export function splitDiffLines(diff) {
+  const lines = diffLines(diff), rows = []
+  for (let i = 0; i < lines.length;) {
+    const line = lines[i]
+    if (line.kind === 'del' || line.kind === 'add') {
+      const old = [], current = []
+      while (i < lines.length && ['del', 'add'].includes(lines[i].kind)) {
+        const next = lines[i++]
+        ;(next.kind === 'del' ? old : current).push(next)
+      }
+      for (let j = 0; j < Math.max(old.length, current.length); j++) rows.push({ old: old[j] ?? null, new: current[j] ?? null })
+    } else {
+      rows.push(line.old !== null || line.new !== null ? { old: line, new: line } : { header: line })
+      i++
+    }
+  }
+  return rows
+}
