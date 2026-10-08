@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Commit Review</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="logo">⑂</span><strong>Commit Review</strong><span class="tag">Preview</span>
+      </div>
+      <select id="repositories" aria-label="Repository"></select
+      ><button id="refresh">↻ Refresh</button
+      ><button id="theme" aria-label="Toggle theme">◐</button>
+    </header>
+    <form id="repository-form">
+      <input
+        id="repository-path"
+        aria-label="Local repository path"
+        placeholder="Or enter a local repository path"
+      /><button>Open repository</button>
+    </form>
+    <div id="error" role="alert" hidden></div>
+    <main>
+      <aside>
+        <div class="section-heading"><strong>COMMITS</strong><span id="count"></span></div>
+        <div id="commits" aria-label="Commits"></div>
+        <div class="section-heading">
+          <strong>FILES IN COMMIT</strong><span id="progress"></span>
+        </div>
+        <div id="files" aria-label="Changed files">
+          <p class="empty">Select a commit to review.</p>
+        </div>
+      </aside>
+      <section id="viewer">
+        <div id="commit-heading">
+          <h1>Select a commit</h1>
+          <p id="commit-meta">Review the changes introduced by one commit at a time.</p>
+        </div>
+        <div id="file-toolbar">
+          <strong id="file-name"></strong><button id="previous" disabled>← Previous</button
+          ><button id="next" disabled>Next →</button
+          ><button id="comment-file" disabled>Comment</button
+          ><label id="review-label" hidden><input type="checkbox" id="reviewed" /> Reviewed</label>
+        </div>
+        <div id="diff" tabindex="0" aria-label="Commit diff">
+          <p class="empty">Choose a repository to begin.</p>
+        </div>
+        <details id="comments-panel" open>
+          <summary>Review comments <span id="comment-count"></span></summary>
+          <div id="comments-list"></div>
+          <div class="send-toolbar">
+            <select id="sessions" aria-label="Agent session">
+              <option value="">Choose an agent session…</option>
+            </select>
+            <button id="refresh-sessions">↻ Sessions</button>
+            <button id="send-review" disabled>Send selected comments</button>
+          </div>
+          <p id="delivery-status" role="status">
+            Click a line number or Comment to add feedback. Only selected drafts are sent.
+          </p>
+        </details>
+      </section>
+    </main>
+    <dialog id="comment-dialog">
+      <form id="comment-form">
+        <h2>Add review comment</h2>
+        <p id="comment-location"></p>
+        <textarea
+          id="comment-body"
+          aria-label="Review comment"
+          rows="5"
+          maxlength="8000"
+          required
+        ></textarea>
+        <p id="comment-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" id="cancel-comment">Cancel</button
+          ><button id="save-comment">Save comment</button>
+        </div>
+      </form>
+    </dialog>
+    <footer>
+      <span>Local Git · Changes compared with the commit’s first parent</span
+      ><span id="save-status">Review marks save on this computer</span>
+    </footer>
+  </body>
+</html>
