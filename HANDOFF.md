@@ -1,5 +1,14 @@
 # Orca Commit Review: implementation and acceptance handoff
 
+## Windows startup defect and correction — 2026-10-08
+
+The user reported a Windows command failure; the exact Windows error and installed app/plugin versions have been requested but not yet supplied. Independent source inspection confirmed a startup defect in previews through `0.3.0-preview.1`: stock Orca 1.4.220's packaged worker environment omits `APPDATA`, while its packaged CLI's Windows `getDefaultUserDataPath` throws when neither `ORCA_USER_DATA_PATH` nor `APPDATA` exists. This happens before repository enumeration and opening the review tab. The generic palette toast does not establish that this is the user's only failure.
+
+- `cli.mjs` now derives the owning user-data directory from the exact stock install layout `<userData>/plugins/craig-franklin.commit-review/<64-hex-content-hash>/cli.mjs` and supplies `ORCA_USER_DATA_PATH` only to the child CLI. It handles redirected/Unicode/space-containing Windows profiles without guessing `USERPROFILE/AppData/Roaming` or changing the app environment. Development paths retain ordinary CLI behavior. The owning installed profile overrides ambient instance selectors; the additional `ORCA_REMOTE_PAIRING` selector is now cleared alongside the other remote selectors.
+- Two focused regression tests cover both platform path formats, a redirected Unicode Windows profile with no APPDATA, case-variant ambient profile selection, and rejection of unrelated/development layouts. Local test suite: **41 passed**. A separate noninteractive probe against the actual packaged stock CLI metadata resolver reproduced the missing-APPDATA exception and then resolved the exact Windows profile after applying the plugin's child environment. This is a source/resolver integration probe on macOS, not Windows Orca desktop verification.
+- README now includes palette shortcuts and the startup issue. The release workflow should publish a new immutable preview and update the README pin after this fix passes both CI platforms. Record the published tag, signature and run result after pushing.
+- No desktop/browser control, terminal feedback, app installation, or live delivery was performed. Required runtime acceptance remains open, including confirming this fix on the user's Windows PC. No designated test target exists.
+
 ## Conventional Commits and automatic releases — 2026-10-08
 
 This update supersedes the earlier `main` commit identities below; the published `v0.2.0` and `v0.2.1-preview.1` tags stay unchanged. All five existing mainline commits were rewritten with identical trees, preserved author identity/date, Conventional Commit subjects, and fresh SSH signatures:

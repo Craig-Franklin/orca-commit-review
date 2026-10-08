@@ -1,7 +1,38 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { cliInvocation, createCli } from '../cli.mjs'
+import { cliInvocation, createCli, installedUserDataPath } from '../cli.mjs'
+
+test('installed worker resolves its owning profile without APPDATA, including redirected Windows profiles', async () => {
+  const hash = 'a'.repeat(64)
+  for (const [paths, profile] of [
+    [path.win32, String.raw`D:\Redirected profiles\Craig 🦎\orca`],
+    [path.posix, '/Users/craig/Library/Application Support/orca']
+  ]) {
+    const modulePath = paths.join(profile, 'plugins', 'craig-franklin.commit-review', hash, 'cli.mjs')
+    assert.equal(installedUserDataPath(modulePath, paths), profile)
+    let observed
+    const cli = createCli({ modulePath, paths, invoke: () => ['orca', []],
+      env: { USERPROFILE: 'wrong-default-home', orca_user_data_path: 'other-instance', ORCA_REMOTE_PAIRING: 'unrelated-host' },
+      executeFile: async (...args) => {
+        observed = args[2].env
+        return { stdout: JSON.stringify({ ok: true, result: { repos: [] } }) }
+      } })
+    await cli(['repo', 'list'])
+    assert.deepEqual(observed, { USERPROFILE: 'wrong-default-home', ELECTRON_RUN_AS_NODE: '1', ORCA_USER_DATA_PATH: profile })
+  }
+})
+
+test('development paths and other plugins cannot select an inferred Orca profile', () => {
+  const hash = 'b'.repeat(64)
+  for (const segments of [
+    ['checkout', 'cli.mjs'], ['plugins', 'other.plugin', hash, 'cli.mjs'],
+    ['plugins', 'craig-franklin.commit-review', 'not-a-content-hash', 'cli.mjs'],
+    ['other', 'craig-franklin.commit-review', hash, 'cli.mjs']
+  ]) {
+    assert.equal(installedUserDataPath(path.join('/tmp/profile', ...segments)), undefined)
+  }
+})
 
 test('packaged CLI discovery handles macOS Helper.app and Windows paths with spaces', () => {
   for (const [paths, executable, entry] of [

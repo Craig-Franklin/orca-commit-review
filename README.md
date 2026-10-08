@@ -20,6 +20,10 @@ Requires Orca **1.4.220+** and Git on PATH. On macOS, install Apple’s command-
 
 If you installed the earlier local-folder preview, install this Git source for the same plugin. Reopen it from the command palette after updating or restarting Orca.
 
+Open the command palette with **Ctrl+Shift+J** on Windows or **Cmd+J** on macOS, then search for **Commit Review: Open**. A local Git project must already be added to Orca.
+
+Windows startup fix: older previews through `0.3.0-preview.1` cannot reliably locate the local runtime because Orca's plugin worker omits `APPDATA`. The corrected plugin resolves the owning Orca profile from its immutable installation path, including redirected Windows profiles, without requiring you to set environment variables. Install the current pinned version above to get the fix. If opening still fails, report the exact error, Orca/plugin versions, and whether a review tab opened.
+
 ## Review and comment
 
 Select a commit, inspect its files, and tick **Reviewed** for each file, then **Complete commit review**. Unmarking a file reopens the commit. Empty commits can be completed explicitly. Click a diff line number for a line comment, or **Comment** for a file comment. Saved comments stay with that checkout and commit.
