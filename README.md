@@ -36,4 +36,4 @@ Select draft comments and an agent session, then **Send selected comments**. Fee
 - Keep the tab open while reviewing. Its connection keeps the worker active. After disabling/updating the plugin, restarting Orca, or a connection loss, reopen from the command palette. Saved reviews remain local.
 - `v0.2.0` remains the original experimental checkpoint. Its original unsigned commit is preserved by that tag; current `main` uses signed replacement history.
 
-Development: `node --test tests/*.test.mjs` (Node 24). Continuation notes and the remaining macOS/Windows acceptance checklist: [HANDOFF.md](HANDOFF.md).
+Development: `npm ci`, then `npm test` (Node 24). Development dependencies support release tooling only; installing the Orca plugin still needs no npm install. Use Conventional Commits; see [CONTRIBUTING.md](CONTRIBUTING.md). Pushes to `main` automatically publish semantic preview tags after macOS and Windows CI pass. Continuation notes and the remaining macOS/Windows acceptance checklist: [HANDOFF.md](HANDOFF.md).

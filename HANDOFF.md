@@ -1,5 +1,24 @@
 # Orca Commit Review: implementation and acceptance handoff
 
+## Conventional Commits and automatic releases — 2026-10-08
+
+This update supersedes the earlier `main` commit identities below; the published `v0.2.0` and `v0.2.1-preview.1` tags stay unchanged. All five existing mainline commits were rewritten with identical trees, preserved author identity/date, Conventional Commit subjects, and fresh SSH signatures:
+
+| Previous main commit | Conventional replacement | Subject |
+| --- | --- | --- |
+| `9412a7a` | `f9560a2` | `feat: add installable Orca commit review plugin` |
+| `d30df24` | `5b25b10` | `docs: document implementation and verification handoff` |
+| `5417c66` | `109b172` | `fix: harden review persistence and delivery recovery` |
+| `7a46531` | `7a2d912` | `test: cover CLI transport and Unicode checkout paths` |
+| `0da4499` | `227f06b` | `docs: record signed preview and acceptance evidence` |
+
+- `.github/workflows/test.yml` validates Conventional Commits, runs tests on macOS and Windows, then publishes only from the exact personal repository's `main` branch. `npm ci` is required for development/CI; the stock-Orca plugin runtime remains dependency-free and needs no npm install.
+- `.release.json` keeps automated publication on the `preview` channel while runtime acceptance is open. `fix`/`perf` request patch, `feat` minor, and `!` or `BREAKING CHANGE`/`BREAKING-CHANGE` major. Documentation/test/chore-only changes do not create a new version. See `CONTRIBUTING.md` for version examples and recovery.
+- The release job updates package, lockfile, plugin manifest, changelog and pinned README URL. It creates `chore(release): v<version>` through GitHub's signing API with an expected-HEAD fence, verifies the resulting signature, then creates an immutable lightweight version tag and a GitHub prerelease. No private signing key or extra secret is stored in CI; it uses the repository-scoped `GITHUB_TOKEN`.
+- Bootstrap commit `7a2d91296ada7b0ebe45bcdb0a142582aedf0284` is the rewritten equivalent of the preserved preview. Its tree must match the published preview tag before the first automated release. Subsequent releases use reachable semantic tags, so old history retained by published tags cannot inflate version calculation.
+- Release jobs are serialized. A stale tested source skips publication. Reruns recover an accepted release commit, tag or release without moving an existing tag; if newer source arrived after an interrupted version commit, recovery publishes that version first and then plans the newer changes.
+- Local release tests are being completed; GitHub CI, rewritten signature verification and the first actual automatic tag/release will be recorded after pushing. Existing desktop/browser and designated-session restrictions remain in force. A published prerelease does not close any plugin runtime acceptance gate.
+
 ## Current status — 2026-10-08
 
 **Implementation improved; required runtime acceptance remains open. Do not call the plugin finished.** Version `0.2.1-preview.1` is a preview. The sections below preserve predecessor evidence and requirements; this update supersedes their test count and architecture details where stated.
@@ -55,7 +74,7 @@ The public repository is `Craig-Franklin/orca-commit-review`. The initial implem
 ## Start here
 
 1. Read this file and `README.md`; inspect `git status`, `git remote -v`, and current `HEAD`. Preserve any newer user changes.
-2. Run `node --test tests/*.test.mjs` with Node 24. No dependency installation or build is required.
+2. For development checks, run `npm ci` then `npm test` with Node 24; `npm run lint:commits` checks commit subjects. No build or dependency installation is required for the installed plugin runtime.
 3. Read `main.mjs`, `comments.mjs`, `server.mjs`, and `web/app.js` before changing behavior. Audit the implementation rather than assuming passing mocks prove compatibility.
 4. Read the `orca-cli` skill and its version-matched guide before runtime operations. Use the installed production Orca CLI, not a development instance. On this Mac it was `/Applications/Orca.app/Contents/Resources/bin/orca`; verify it still exists.
 

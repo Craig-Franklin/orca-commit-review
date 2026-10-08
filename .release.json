@@ -1,0 +1,10 @@
+{
+  "repository": "Craig-Franklin/orca-commit-review",
+  "branch": "main",
+  "prerelease": "preview",
+  "bootstrap": {
+    "version": "0.2.1-preview.1",
+    "commit": "7a2d91296ada7b0ebe45bcdb0a142582aedf0284",
+    "tag": "v0.2.1-preview.1"
+  }
+}

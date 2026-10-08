@@ -5,6 +5,9 @@ import { readFile } from 'node:fs/promises'
 test('manifest and dependency-free runtime files form a consistent Git-installable package', async () => {
   const manifest = JSON.parse(await readFile(new URL('../orca-plugin.json', import.meta.url)))
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url)))
+  const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url)))
+  assert.equal(lock.version, pkg.version)
+  assert.equal(lock.packages[''].version, pkg.version)
   assert.equal(manifest.version, pkg.version)
   assert.equal(manifest.publisher + '.' + manifest.id, 'craig-franklin.commit-review')
   assert.equal(manifest.main, 'main.mjs')
