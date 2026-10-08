@@ -40,6 +40,8 @@ On a push to `main`, GitHub Actions:
 4. Uses `createCommitOnBranch` to create a GitHub-signed `chore(release): v<version>` commit. It checks GitHub verification before tagging.
 5. Creates `v<version>` as a lightweight tag pointing to the verified commit, then publishes a GitHub prerelease with notes. Existing tags are never moved. No npm package is published.
 
+The generated version commit advances `main`; pull it before starting the next change.
+
 Only the release job has `contents: write`. It uses the built-in `GITHUB_TOKEN`; no PAT, private signing key, paid service, or extra secret is needed. GitHub suppresses recursive push workflows from that token, so the generated version commit does not start another release loop. Both platform tests covered its source parent; the job also validates the generated metadata before committing.
 
 Run `npm run release:plan` for a read-only preview. For a failed publication, use **Actions → Plugin tests and release → Run workflow** on `main`, or rerun the failed job. Recovery reuses a signed version commit and an existing tag/release. A partial release followed by a newer push is recovered before calculating that push's next version. A conflicting tag or unverified commit stops publication.
