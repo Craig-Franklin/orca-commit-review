@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.0-preview.3
+
+Preview release: stock-Orca Git URL installation, comment UI, real delivery and Windows desktop acceptance remain open. Automated release publication does not certify runtime acceptance.
+
+- feat(review): follow the current worktree and native review workflow (60a0e0d)
+
 ## v0.3.0-preview.2
 
 Preview release: stock-Orca Git URL installation, comment UI, real delivery and Windows desktop acceptance remain open. Automated release publication does not certify runtime acceptance.
