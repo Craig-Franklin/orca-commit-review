@@ -1,29 +1,65 @@
-# Continuation
+# Sol continuation: finish the installable plugin
 
-Paused at the v0.2.0 plugin checkpoint. This is an independent installable plugin, not the earlier custom Orca sidebar prototype.
+## Objective
 
-## Required behavior
+Finish and verify a small stock-Orca plugin for reviewing agent work one commit at a time. Work through implementation and meaningful tests; do not stop after producing another plan. Report blockers precisely and never call a simulated test end-to-end proof.
 
-- Per-commit Git graph and diff, explicit file review marks, commit completion.
-- File/line review comments sent to a chosen Orca terminal agent are essential.
-- macOS and Windows, local persistence; no sync needed.
-- Keep setup simple and documentation short.
+The public repository is `Craig-Franklin/orca-commit-review`. The initial implementation is commit `c62294538eeac6a3f5eaac1c3dd41eae0cb234b7`, tagged `v0.2.0`. That tag is an experimental checkpoint, not a verified finished release. Start from current `main`, which also contains this handoff; preserve the existing tag.
 
-## Current state
+## User requirements and constraints
 
-- `main.mjs`: trusted plugin worker, bundled Orca CLI, local browser tab.
-- `git.mjs` / `server.mjs`: read-only Git access and authenticated loopback API.
-- `comments.mjs`: saved comment drafts, exact-checkout session selection, durable send IDs, retained delivery receipts, explicit delivery checks.
-- `web/`: graph, inline diff, review progress, comment composer, session picker.
-- Ten Node tests pass, including real temporary Git histories and simulated session delivery, duplicate requests, timeout recovery, checkout isolation, storage failure, and HTTP authentication.
+- Stock Orca installation from a Git URL. A custom Orca build is unacceptable.
+- A Git graph, per-commit file diffs, explicit reviewed-file marks, and commit completion. Compare a commit to its parent, not the branch base; merges currently use the first parent.
+- File and line comments that can be sent back to the selected Orca **terminal agent** are non-negotiable. Native chat support is not required for this iteration.
+- macOS and Windows, local persistence; no sync needed. The current browser-tab approach is a prototype awaiting hands-on acceptance, not approval of every UI choice.
+- Keep the README and installation simple. Give concise progress updates during sustained work.
+- **Do not control the desktop or browser.** Another session is using computer control. Do not switch tabs, click, screenshot, reload, open/focus apps, or drive the user's embedded browser unless the user explicitly lifts that constraint. Shell, source inspection, and isolated noninteractive tests are available.
+- Do not send test feedback to unrelated or production sessions. Before a live send, identify an explicitly designated test target. This handoff does not designate any existing session as that target.
+- Only modify this plugin repository. The earlier `Orca-Commit-Review` checkout contains the rejected custom-build prototype and unrelated dirty work: use its Orca API source for reference only.
+- Keep GitHub operations under the personal `Craig-Franklin/orca-commit-review` repository. Do not alter organization access, credentials, or other projects.
 
-## Next work
+## Start here
 
-1. Install this Git version in stock Orca and evaluate the comment UI.
-2. With explicit user approval, send one real review to a chosen test terminal agent and confirm receipt in that session. No live review messages have been sent during development.
-3. Verify Windows installation, bundled CLI discovery, and session delivery.
-4. Refine based on hands-on feedback. Native chat, remote checkouts, line ranges, and native sidebar integration are outside this preview.
+1. Read this file and `README.md`; inspect `git status`, `git remote -v`, and current `HEAD`. Preserve any newer user changes.
+2. Run `node --test tests/*.test.mjs` with Node 24. No dependency installation or build is required.
+3. Read `main.mjs`, `comments.mjs`, `server.mjs`, and `web/app.js` before changing behavior. Audit the implementation rather than assuming passing mocks prove compatibility.
+4. Read the `orca-cli` skill and its version-matched guide before runtime operations. Use the installed production Orca CLI, not a development instance. On this Mac it was `/Applications/Orca.app/Contents/Resources/bin/orca`; verify it still exists.
 
-The running local-folder installation is still the earlier viewer version. Source edits do not change Orca’s installed snapshot. This Git URL installation has not been exercised in the app yet.
+## Architecture and API findings
 
-Do not control the desktop or browser: the user has another session using computer control. No automation should switch tabs, click, screenshot, reload, or open the app unless the user changes that constraint. Resume with source inspection and local tests.
+- `orca-plugin.json`: plugin identity `craig-franklin.commit-review`, worker entry `main.mjs`, storage capability, minimum Orca 1.4.220.
+- `main.mjs`: trusted Node worker starts the loopback server and opens its UI as an Orca browser tab. It finds Orca's bundled CLI by walking ancestors of `process.execPath`, including the macOS Helper.app case, then uses `execFile` with `ELECTRON_RUN_AS_NODE=1`.
+- `git.mjs`: reads local Git history and historical file diffs. Uses argument arrays and literal pathspecs, disables external diff/textconv, limits output to 4 MB, and does not edit repository files.
+- `server.mjs`: authenticated loopback HTTP API. Random token supplied in URL fragment and API header; exact Host/Origin checks, no CORS, restrictive CSP. Review progress uses Orca plugin storage.
+- `comments.mjs`: stored draft comments keyed by checkout and commit; validates file/old/new line anchors. Enumerates connected writable agents from `terminal list --worktree path:<checkout>`, checks the canonical checkout path, and sends to an explicit runtime-issued handle.
+- Sending persists the exact prompt, target, and request ID before calling `terminal send --text ... --enter --wait-submit 3 --retry-request <id>`. Duplicate HTTP submissions do not create another send. Explicit Check delivery uses the same original command/request. Distinguishes input acceptance from observed `turn_started`; uncertain delivery retains comments.
+- `web/`: vanilla browser UI, Git graph, inline diff, review marks, file/line comment dialog, draft selection, session picker, and delivery status. `diff-lines.mjs` is shared by rendering and server line validation.
+- Progress polling calls host storage to keep the plugin worker active; Orca otherwise reaps idle workers. Review worker lifecycle and reconnect behavior before declaring reliability.
+- Sandboxed plugin panels lack the bridge/API access needed for this implementation. The trusted worker plus local web UI avoids changes to Orca. Do not rebuild the old native sidebar solution.
+- Orca's source references: `src/renderer/src/lib/agent-message-send.ts`, `active-agent-note-send.ts`, `src/shared/diff-comments-format.ts`, `src/cli/handlers/terminal-send.ts`, and `src/shared/runtime-terminal-contracts.ts`. The local source reference predates the installed app; verify behavior against the actual installed version when needed.
+
+## Evidence already obtained
+
+- Earlier graph/diff/review-mark viewer was installed and exercised in stock Orca 1.4.220 on macOS; review persistence survived a page reload.
+- Ten Node tests pass. They cover real temporary Git histories, literal filenames, historical/root diffs, stored comments, old/new anchors, checkout/session filtering, simulated delivery, duplicate submissions, uncertain replies across service restart, storage failure before send, and HTTP authentication/origin checks.
+- Source and tag were pushed to the public repo. The documented Git install URL is `https://github.com/Craig-Franklin/orca-commit-review.git#v0.2.0`.
+- The plugin checkout has been registered as an Orca project named `orca-commit-review-plugin`. No new agent was launched; the user will start a Sol session and paste a prompt.
+
+## Not yet proven
+
+- The new comment UI has not been exercised inside stock Orca.
+- No real review comment has been sent to any live agent during development. The send tests use a fake CLI adapter.
+- Installation from the published Git URL has not been exercised in the app.
+- Windows installation, bundled CLI discovery, Git invocation, and live delivery have not been runtime-tested.
+- The previously installed local-folder plugin is an immutable snapshot of the earlier viewer. Editing this checkout does not update that installation. Do not mistake an old working tab for the new implementation.
+
+## Execution order and acceptance
+
+1. **Audit and finish the implementation.** Check session targeting and revalidation, actual CLI JSON/error/receipt shapes, safe recovery when a send is rejected or uncertain, persistence failures, browser state races while changing files/commits, Windows argument/path handling, and worker lifetime. These are review targets, not predeclared defects. Add focused regression tests for confirmed problems and keep scope small.
+2. **Verify packaging without touching the desktop.** Check the manifest, published/ref-resolved files, source exclusions, and absence of build/runtime dependencies beyond Git and Orca. Add useful cross-platform automated checks if available; do not describe them as a Windows desktop test.
+3. **Verify live integration when permitted.** If installation/UI testing requires desktop or embedded-browser control, finish all independent work first and explicitly report the remaining restriction. Do not bypass it through CDP or renderer evaluation. Have the user perform the install/test steps or obtain permission for a later controlled test.
+4. **Prove the key review loop.** On a designated test checkout/session: choose a historical commit; add file, added-line, and removed-line comments; reload to verify persistence; send selected drafts to the chosen agent; confirm exact commit/path/side/line/text in the receiving session; exercise delivery checks without duplicate messages. Verify marked files and commit completion persist. Report both acceptance receipts and actual observed results accurately.
+5. **Check Windows.** Use an available Windows environment or give a short explicit test checklist and keep this item open. Do not claim it passed based on macOS or mocks.
+6. **Record and deliver.** Update this handoff with fixes, tests, and remaining blockers. Keep the README's verification claims accurate. Commit and push scoped changes to the personal repo; do not rewrite `v0.2.0`. If publishing a new version, bump manifest/package together and use a new tag only with an accurate preview/verified status.
+
+Completion means the agreed review loop works in stock Orca with real comment delivery and evidence for the supported platforms. If a runtime or user restriction prevents full verification, clearly state what is implemented, what is proven, and what remains. The user specifically asked whether this was actually done: do not repeat an overstatement of completion.
