@@ -3,7 +3,7 @@
   "id": "commit-review",
   "publisher": "craig-franklin",
   "name": "Commit Review",
-  "version": "0.2.1-preview.1",
+  "version": "0.3.0-preview.1",
   "description": "Review agent changes one commit at a time, track reviewed files, and send file or line comments to Orca terminal agents.",
   "engines": {
     "orca": ">=1.4.220"

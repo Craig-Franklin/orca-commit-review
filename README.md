@@ -12,7 +12,7 @@ Requires Orca **1.4.220+** and Git on PATH. On macOS, install Apple’s command-
 2. Paste this URL, including the version tag:
 
    ```text
-   https://github.com/Craig-Franklin/orca-commit-review.git#v0.2.1-preview.1
+   https://github.com/Craig-Franklin/orca-commit-review.git#v0.3.0-preview.1
    ```
 
 3. Review and enable **Commit Review**.
