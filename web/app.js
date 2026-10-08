@@ -10,7 +10,9 @@ const state = {
   file: null,
   generation: 0,
   fileGeneration: 0,
-  saving: false
+  saving: false,
+  reviewGeneration: 0,
+  filesReady: false
 }
 function node(tag, text, className) {
   const el = document.createElement(tag)
@@ -99,7 +101,7 @@ function graphSVG(g, commit) {
 function progress(id) {
   const r = state.review[id]
   return r
-    ? `${r.paths.length} / ${r.total} reviewed${r.total > 0 && r.paths.length === r.total ? ' ✓' : ''}`
+    ? `${r.paths.length} / ${r.total} reviewed${r.complete === true ? ' ✓' : ''}`
     : ''
 }
 function renderCommits() {
@@ -159,6 +161,10 @@ function renderFiles() {
   $('reviewed').disabled = state.saving
   $('review-label').hidden = !state.file
   $('comment-file').disabled = !state.file
+  const record = state.review[state.commit?.id]
+  $('complete-review').textContent = record?.complete ? 'Reopen commit review' : 'Complete commit review'
+  $('complete-review').disabled = state.saving || !state.commit || !state.filesReady ||
+    !record || (!record.complete && state.files.some((f) => !checked.has(f.path)))
   const i = state.files.findIndex((f) => f.path === state.file)
   $('previous').disabled = i <= 0
   $('next').disabled = i < 0 || i >= state.files.length - 1
@@ -173,8 +179,10 @@ async function loadRepo(repo) {
   state.commit = null
   state.file = null
   state.files = []
+  state.filesReady = false
   state.commits = []
   state.review = {}
+  state.reviewGeneration++
   $('error').hidden = true
   $('diff').replaceChildren(node('p', 'Loading commits…', 'empty'))
   $('commit-heading').querySelector('h1').textContent = 'Loading repository'
@@ -200,6 +208,7 @@ async function selectCommit(commit) {
   loadComments(state.repo, commit.id).catch(error)
   state.file = null
   state.files = []
+  state.filesReady = false
   $('error').hidden = true
   $('file-name').textContent = ''
   $('commit-heading').querySelector('h1').textContent = commit.subject
@@ -211,6 +220,7 @@ async function selectCommit(commit) {
   const result = await api('files', { repo: state.repo, commit: commit.id })
   if (generation !== state.generation) return
   state.files = result.files
+  state.filesReady = true
   state.review[commit.id] ??= { total: result.files.length, paths: [] }
   renderCommits()
   renderFiles()
@@ -249,7 +259,7 @@ function renderDiff(diff) {
   }
   $('diff').replaceChildren(fragment)
 }
-async function mark(path, reviewed) {
+async function mark(path, reviewed, complete) {
   if (state.saving) return
   const commit = state.commit.id,
     repo = state.repo
@@ -257,8 +267,9 @@ async function mark(path, reviewed) {
   $('save-status').textContent = 'Saving…'
   renderFiles()
   try {
-    const record = await api('review', { repo, commit }, { path, reviewed })
+    const record = await api('review', { repo, commit }, complete === undefined ? { path, reviewed } : { complete })
     if (repo === state.repo) {
+      state.reviewGeneration++
       state.review[commit] = record
       renderCommits()
     }
@@ -271,6 +282,8 @@ async function mark(path, reviewed) {
     renderFiles()
   }
 }
+$('complete-review').onclick = () =>
+  mark(undefined, undefined, !state.review[state.commit.id]?.complete).catch(error)
 $('reviewed').onchange = () => mark(state.file, $('reviewed').checked).catch(error)
 $('previous').onclick = () =>
   selectFile(state.files[state.files.findIndex((f) => f.path === state.file) - 1].path).catch(error)
@@ -305,12 +318,12 @@ async function start() {
   }
 }
 
-setInterval(async () => {
+async function pollProgress() {
   if (!state.repo || state.saving) return
-  const repo = state.repo
+  const repo = state.repo, generation = state.reviewGeneration
   try {
     const result = await api('progress', { repo })
-    if (repo === state.repo && !state.saving) {
+    if (repo === state.repo && !state.saving && generation === state.reviewGeneration) {
       state.review = { ...state.review, ...result }
       renderCommits()
       renderFiles()
@@ -318,7 +331,8 @@ setInterval(async () => {
   } catch (e) {
     error(e)
   }
-}, 60000)
+}
+setInterval(pollProgress, 60000)
 
 let comments = { notes: [], deliveries: {} },
   selectedNotes = new Set(),
@@ -328,6 +342,7 @@ let commentBusy = false,
   commentsGeneration = 0
 function resetComments() {
   commentsGeneration++
+  if ($('comment-dialog').open && !commentBusy) $('comment-dialog').close()
   comments = { notes: [], deliveries: {} }
   selectedNotes = new Set()
   renderComments()
@@ -335,7 +350,8 @@ function resetComments() {
 function sameReview(repo, commit) {
   return repo === state.repo && commit === state.commit?.id
 }
-async function loadComments(repo, commit) {
+async function loadComments(repo, commit, recovery = false) {
+  if (commentBusy && !recovery) return
   const generation = ++commentsGeneration
   const result = await api('comments', { repo, commit })
   if (!sameReview(repo, commit) || generation !== commentsGeneration) return
@@ -381,7 +397,7 @@ function renderComments() {
   for (const delivery of Object.values(comments.deliveries)) {
     const row = node('div', undefined, 'delivery')
     row.append(node('span', `${delivery.target}: ${delivery.message}`))
-    if (delivery.status !== 'sent') {
+    if (!['sent', 'rejected'].includes(delivery.status)) {
       const check = node('button', 'Check delivery')
       check.title = 'Check the same request; never create a duplicate send.'
       check.disabled = commentBusy
@@ -443,11 +459,11 @@ async function commentMutation(
 ) {
   if (commentBusy) return
   commentBusy = true
-  commentsGeneration++
+  const generation = ++commentsGeneration
   renderComments()
   try {
     const result = await api(route, { repo: context.repo, commit: context.commit }, body)
-    if (sameReview(context.repo, context.commit)) {
+    if (sameReview(context.repo, context.commit) && generation === commentsGeneration) {
       comments = result
       selectedNotes = new Set(result.notes.filter((n) => !n.deliveryId).map((n) => n.id))
     }
@@ -455,7 +471,7 @@ async function commentMutation(
     if (route === 'send' && sameReview(context.repo, context.commit)) {
       // Read the persisted attempt; never automatically resend after a lost HTTP reply.
       try {
-        await loadComments(context.repo, context.commit)
+        await loadComments(context.repo, context.commit, true)
       } catch {
         /* Keep drafts visible. */
       }
@@ -466,6 +482,8 @@ async function commentMutation(
   } finally {
     commentBusy = false
     renderComments()
+    if (state.commit && generation !== commentsGeneration)
+      loadComments(state.repo, state.commit.id).catch(error)
   }
 }
 $('comment-file').onclick = () => composeComment()
@@ -516,4 +534,16 @@ $('send-review').onclick = () => {
     noteIds: [...selectedNotes]
   }).catch(error)
 }
+async function heartbeat() {
+  try {
+    const response = await fetch('/api/heartbeat', { headers: { 'X-Review-Token': token } })
+    if (!response.ok) throw Error('Commit Review connection expired.')
+    const reader = response.body.getReader()
+    while (!(await reader.read()).done) { /* Worker owns the heartbeat timer. */ }
+    throw Error('Commit Review disconnected.')
+  } catch {
+    error(Error('Commit Review disconnected. Reopen it from Orca’s command palette; saved reviews are retained.'))
+  }
+}
+heartbeat()
 start().catch(error)

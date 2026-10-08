@@ -37,10 +37,13 @@ export function createComments({ get, set, cli }) {
     const result = await cli(['terminal', 'list', '--worktree', `path:${repo}`, '--limit', '200'])
     const targets = []
     for (const t of result.terminals ?? []) {
-      if (!t.connected || !t.writable || !t.agentIdentity || !t.handle || t.orphaned) continue
+      if (!t.connected || !t.writable || !t.agentIdentity || !t.handle || t.orphaned ||
+          (t.executionHostId && t.executionHostId !== 'local')) continue
       if ((await realpath(t.worktreePath).catch(() => null)) !== repo) continue
       targets.push({
         id: t.handle,
+        incarnation: t.incarnationId ?? null,
+        agent: t.agentIdentity,
         label: `${t.title || t.agentIdentity} · ${t.agentIdentity} · ${t.handle}`
       })
     }
@@ -66,13 +69,25 @@ export function createComments({ get, set, cli }) {
         delivery.id
       ])
       const receipt = result.send
+      const previouslyAccepted = delivery.inputAccepted === true || delivery.receipt?.accepted === true
+      if (receipt?.handle === delivery.target && receipt.accepted === true) delivery.inputAccepted = true
       delivery.receipt = receipt
-      if (receipt?.accepted && receipt.prompt?.stages?.includes('turn_started')) {
+      const bound = receipt?.handle === delivery.target &&
+        receipt.prompt?.requestId === delivery.id
+      if (bound && receipt.accepted === true && receipt.prompt?.stages?.includes('turn_started')) {
         delivery.status = 'sent'
         delivery.message = 'Agent turn started.'
-      } else if (receipt?.accepted) {
+      } else if (bound && receipt.accepted === true) {
         delivery.status = 'accepted'
         delivery.message = 'Orca accepted the review; agent turn start is not confirmed.'
+      } else if (!previouslyAccepted && receipt?.handle === delivery.target && receipt.accepted === false &&
+                 receipt.bytesWritten === 0 && (!receipt.prompt || receipt.prompt.requestId === delivery.id) &&
+                 !receipt.prompt?.stages?.includes('input_accepted')) {
+        delivery.status = 'rejected'
+        delivery.message = 'Orca refused input without writing any bytes. Comments restored to drafts.'
+        for (const note of state.notes) {
+          if (note.deliveryId === delivery.id) delete note.deliveryId
+        }
       } else {
         delivery.status = 'unconfirmed'
         delivery.message =
@@ -141,13 +156,20 @@ export function createComments({ get, set, cli }) {
         const existing = state.deliveries[input.requestId]
         if (existing) {
           // Duplicate HTTP submits are read-only; only the Check delivery action replays a receipt.
-          if (input.check === true && existing.status !== 'sent')
+          if (input.check === true && !['sent', 'rejected'].includes(existing.status)) {
+            const current = (await targets(repo)).targets.find((t) => t.id === existing.target)
+            if (!current || !existing.targetIdentity ||
+                current.incarnation !== existing.targetIdentity.incarnation ||
+                current.agent !== existing.targetIdentity.agent)
+              throw Error('The original agent is unavailable or has changed. Delivery remains uncertain; inspect that session before any new send.')
             return deliver(repo, commit, state, existing)
+          }
           return state
         }
         if (input.check) throw Error('Unknown delivery request.')
         const { targets: available } = await targets(repo)
-        if (!available.some((t) => t.id === input.target))
+        const target = available.find((t) => t.id === input.target)
+        if (!target)
           throw Error(
             'Choose a connected agent in this checkout. Refresh sessions if it has moved or closed.'
           )
@@ -169,6 +191,7 @@ export function createComments({ get, set, cli }) {
         const delivery = {
           id: input.requestId,
           target: input.target,
+          targetIdentity: { incarnation: target.incarnation, agent: target.agent },
           prompt,
           status: 'unconfirmed',
           createdAt: new Date().toISOString()

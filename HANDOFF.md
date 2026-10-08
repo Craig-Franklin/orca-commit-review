@@ -1,4 +1,38 @@
-# Sol continuation: finish the installable plugin
+# Orca Commit Review: implementation and acceptance handoff
+
+## Current status — 2026-10-08
+
+**Implementation improved; required runtime acceptance remains open. Do not call the plugin finished.** Version `0.2.1-preview.1` is a preview. The sections below preserve predecessor evidence and requirements; this update supersedes their test count and architecture details where stated.
+
+- Verified clean checkout and exact personal remote `https://github.com/Craig-Franklin/orca-commit-review.git` before edits. No custom Orca build or desktop/browser control used. No terminal input sent to any session.
+- Replaced the two unsigned commits on `main` with SSH-signed equivalents, preserving their trees, messages, authors and author dates. Original `c62294538eeac6a3f5eaac1c3dd41eae0cb234b7` becomes `9412a7a84c6e6f965202fd447bd8c069da818de9`; original `5a390b6e9cca910f58d2555b2076d86abd29b71d` becomes `d30df24192ba0b1a33dad4f865cc8d79c1223b38`. Keep the original `v0.2.0` tag at `c62294538eeac6a3f5eaac1c3dd41eae0cb234b7`: its unsigned ancestor is the deliberate exception to preserving all historical refs. GitHub verification of published replacement commits must be checked after push. Local recovery bundle and mapping are ignored under `.tmp/`.
+
+Implemented fixes and behavior:
+
+- `cli.mjs` owns packaged CLI discovery and invocation. It preserves structured exit-1 refusal receipts, hides command-line/comment content from errors, keeps argument arrays, and clears ambient remote selectors and Node injection flags.
+- Sends bind receipts to the target handle and request ID. Only a confirmed zero-byte refusal restores drafts. Partial writes, missing/mismatched receipts, and transport failures remain uncertain. Once input acceptance is known, later refusals cannot restore drafts. Delivery checks revalidate checkout, agent and process incarnation before replaying the exact request. Predecessor attempts lacking identity are deliberately kept uncertain.
+- Explicit commit completion requires every file mark, supports empty commits, persists locally, and reopens when a file is unmarked. Earlier marks remain; completion is now explicit.
+- Empty repositories open successfully. History excludes Git notes/signature/color output; merge diffs compare first parent. Submodules use summaries rather than nested patches that could mis-anchor comments.
+- UI guards stale diff/comment/progress responses. The heartbeat streams while a page is connected and calls host storage independently of background-page timer throttling; disconnect releases it. Connection loss explains how to reopen from the command palette. The lifecycle test is synthetic, not a stock-worker idle/sleep test.
+- HTTP bodies decode UTF-8 across chunk boundaries and token checks reject non-hex input.
+- Added macOS/Windows Node 24 CI. Runner results are pending publication; Windows desktop/Orca integration remains a separate check.
+
+Verification at this point:
+
+- 28 tests passed with local Node 24.13.0 and again with Orca’s bundled Node 24.21.0. Tests use real temporary Git histories and HTTP, an in-memory DOM, and a simulated send adapter. These are not installed-plugin or real-delivery acceptance.
+- `scripts/verify-runtime.mjs` passed read-only checks under the installed Orca executable: packaged Node 24.21.0, stock Orca 1.4.220, bundled CLI discovery, local runtime connectivity, durable prompt capability, repo JSON and exact-checkout session enumeration. The probe performs no sends, opens no tabs, and controls no desktop/browser. An enumerated agent is not a designated test target.
+- Git URL cloning and package/ref checks will be performed after publishing. Cloning is not proof of Settings installation, consent, activation or visual usability.
+
+Remaining acceptance checks (macOS and Windows):
+
+1. Install the published `#v0.2.1-preview.1` Git URL through stock Orca Settings, enable it, and open from the command palette. Verify the installed version; do not reuse the old immutable local-folder snapshot.
+2. Use an explicitly designated disposable checkout and terminal agent. Select a historical commit with added and removed lines. Save a file comment and both old/new line comments; reload and confirm bodies/anchors persist.
+3. Select the designated agent; send those drafts once. Record the accepted request ID and independently inspect the receiving session for the exact commit hash, checkout, file, old/new side, line, context and text. Check delivery using the same request and confirm no duplicate feedback appears. Acceptance receipts alone do not prove correct receipt by the agent.
+4. Mark every changed file, complete the commit, reload and verify both persist. Unmark a file and confirm reopening. Complete an empty commit.
+5. Keep a background tab open beyond five minutes and check it remains usable; close tabs and verify the worker can idle; restart Orca and reopen to confirm persisted state. This specifically requires stock-app observation.
+6. Repeat Git URL installation, discovery, Unicode/space-containing paths, Git/diff/review loop, and real delivery on Windows with Git for Windows on PATH. CI proves only the automated parts.
+
+The desktop/browser prohibition blocks Settings installation, visual acceptance and stock UI lifecycle checks. Live delivery also requires a designated test target; none was supplied by the original handoff. Do not bypass the prohibition via CDP or renderer evaluation. User-performed steps can supply evidence without lifting the restriction; otherwise request permission for those specific checks only.
 
 ## Objective
 
@@ -28,21 +62,21 @@ The public repository is `Craig-Franklin/orca-commit-review`. The initial implem
 ## Architecture and API findings
 
 - `orca-plugin.json`: plugin identity `craig-franklin.commit-review`, worker entry `main.mjs`, storage capability, minimum Orca 1.4.220.
-- `main.mjs`: trusted Node worker starts the loopback server and opens its UI as an Orca browser tab. It finds Orca's bundled CLI by walking ancestors of `process.execPath`, including the macOS Helper.app case, then uses `execFile` with `ELECTRON_RUN_AS_NODE=1`.
+- `main.mjs` and `cli.mjs`: trusted Node worker starts the loopback server and opens its UI as an Orca browser tab. It finds Orca's bundled CLI by walking ancestors of `process.execPath`, including the macOS Helper.app case, then uses `execFile` with `ELECTRON_RUN_AS_NODE=1`.
 - `git.mjs`: reads local Git history and historical file diffs. Uses argument arrays and literal pathspecs, disables external diff/textconv, limits output to 4 MB, and does not edit repository files.
 - `server.mjs`: authenticated loopback HTTP API. Random token supplied in URL fragment and API header; exact Host/Origin checks, no CORS, restrictive CSP. Review progress uses Orca plugin storage.
 - `comments.mjs`: stored draft comments keyed by checkout and commit; validates file/old/new line anchors. Enumerates connected writable agents from `terminal list --worktree path:<checkout>`, checks the canonical checkout path, and sends to an explicit runtime-issued handle.
 - Sending persists the exact prompt, target, and request ID before calling `terminal send --text ... --enter --wait-submit 3 --retry-request <id>`. Duplicate HTTP submissions do not create another send. Explicit Check delivery uses the same original command/request. Distinguishes input acceptance from observed `turn_started`; uncertain delivery retains comments.
 - `web/`: vanilla browser UI, Git graph, inline diff, review marks, file/line comment dialog, draft selection, session picker, and delivery status. `diff-lines.mjs` is shared by rendering and server line validation.
-- Progress polling calls host storage to keep the plugin worker active; Orca otherwise reaps idle workers. Review worker lifecycle and reconnect behavior before declaring reliability.
+- A connected-page heartbeat calls host storage to keep the plugin worker active; Orca otherwise reaps idle workers. Review worker lifecycle and reconnect behavior before declaring reliability.
 - Sandboxed plugin panels lack the bridge/API access needed for this implementation. The trusted worker plus local web UI avoids changes to Orca. Do not rebuild the old native sidebar solution.
 - Orca's source references: `src/renderer/src/lib/agent-message-send.ts`, `active-agent-note-send.ts`, `src/shared/diff-comments-format.ts`, `src/cli/handlers/terminal-send.ts`, and `src/shared/runtime-terminal-contracts.ts`. The local source reference predates the installed app; verify behavior against the actual installed version when needed.
 
 ## Evidence already obtained
 
 - Earlier graph/diff/review-mark viewer was installed and exercised in stock Orca 1.4.220 on macOS; review persistence survived a page reload.
-- Ten Node tests pass. They cover real temporary Git histories, literal filenames, historical/root diffs, stored comments, old/new anchors, checkout/session filtering, simulated delivery, duplicate submissions, uncertain replies across service restart, storage failure before send, and HTTP authentication/origin checks.
-- Source and tag were pushed to the public repo. The documented Git install URL is `https://github.com/Craig-Franklin/orca-commit-review.git#v0.2.0`.
+- The predecessor had ten passing Node tests. They cover real temporary Git histories, literal filenames, historical/root diffs, stored comments, old/new anchors, checkout/session filtering, simulated delivery, duplicate submissions, uncertain replies across service restart, storage failure before send, and HTTP authentication/origin checks.
+- Source and tag were pushed to the public repo. The predecessor Git install URL was `https://github.com/Craig-Franklin/orca-commit-review.git#v0.2.0`; the new preview uses `#v0.2.1-preview.1`.
 - The plugin checkout has been registered as an Orca project named `orca-commit-review-plugin`. No new agent was launched; the user will start a Sol session and paste a prompt.
 
 ## Not yet proven
